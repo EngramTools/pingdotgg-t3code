@@ -155,6 +155,15 @@ export class ProjectTooManyTrackedFoldersError extends Schema.TaggedError<Projec
   }
 }
 
+export class ProjectTrackedFolderEmptyError extends Schema.TaggedError<ProjectTrackedFolderEmptyError>()(
+  "ProjectTrackedFolderEmptyError",
+  { operation: Schema.Literal("addProject") },
+) {
+  override get message(): string {
+    return "--track folder path cannot be empty.";
+  }
+}
+
 export const ProjectCommandError = Schema.Union([
   ProjectCommandIdGenerationError,
   ProjectLiveServerDeclaredResponseError,
@@ -164,6 +173,7 @@ export const ProjectCommandError = Schema.Union([
   ProjectNotFoundError,
   ProjectAlreadyExistsError,
   ProjectTooManyTrackedFoldersError,
+  ProjectTrackedFolderEmptyError,
 ]);
 export type ProjectCommandError = typeof ProjectCommandError.Type;
 
@@ -389,8 +399,11 @@ const projectAddCommand = Command.make("add", {
   ),
 }).pipe(
   Command.withDescription("Add a project."),
-  Command.withHandler((flags) =>
-    runProjectMutation(
+  Command.withHandler((flags) => {
+    if (flags.track.some((folder) => folder.trim().length === 0)) {
+      return Effect.fail(new ProjectTrackedFolderEmptyError({ operation: "addProject" }));
+    }
+    return runProjectMutation(
       flags,
       Effect.fn("projectAddMutation")(function* ({
         snapshot,
@@ -485,8 +498,8 @@ const projectAddCommand = Command.make("add", {
         }
         return added;
       }),
-    ),
-  ),
+    );
+  }),
 );
 
 const projectRemoveCommand = Command.make("remove", {

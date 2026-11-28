@@ -126,8 +126,10 @@ it.live("uses the literal folder when a relative project path starts with a spac
     const cwd = yield* fs.realPath(yield* fs.makeTempDirectoryScoped());
     const baseDir = NodePath.join(cwd, "state");
     const intended = NodePath.join(cwd, " notes");
+    const tracked = NodePath.join(cwd, " subdir");
     yield* fs.makeDirectory(intended);
     yield* fs.makeDirectory(NodePath.join(cwd, "notes"));
+    yield* fs.makeDirectory(tracked);
 
     const runProject = Effect.fn("test.runProject")(function* (args: ReadonlyArray<string>) {
       const entrypoint = NodePath.join(import.meta.dirname, "../bin.ts");
@@ -139,14 +141,21 @@ it.live("uses the literal folder when a relative project path starts with a spac
       assert.equal(Number(yield* spawner.exitCode(command)), 0, args.join(" "));
     });
 
-    yield* runProject(["add", " notes", "--title", "Literal"]);
+    yield* runProject(["add", " notes", "--title", "Literal", "--track", " subdir"]);
     yield* runProject(["rename", " notes", "Renamed"]);
     assert.deepEqual(
-      (yield* readProjects(baseDir)).projects.map(({ title, workspaceRoot }) => ({
+      (yield* readProjects(baseDir)).projects.map(({ title, workspaceRoot, trackedFolders }) => ({
         title,
         workspaceRoot,
+        trackedFolders,
       })),
-      [{ title: "Renamed", workspaceRoot: intended }],
+      [
+        {
+          title: "Renamed",
+          workspaceRoot: intended,
+          trackedFolders: [{ path: tracked, name: "subdir" }],
+        },
+      ],
     );
   }).pipe(Effect.provide(layerCliRuntime)),
 );
@@ -171,8 +180,57 @@ it.effect(
       yield* runCli(["project", "remove", added?.id ?? "", "--base-dir", baseDir]);
       assert.deepEqual((yield* readProjects(baseDir)).projects, []);
 
-      // Repositories inside the folder are found; `--track` adds one from outside it.
       const shared = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-v2-project-shared-"));
+      const liveBaseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-v2-project-live-"));
+      yield* persistServerRuntimeState({
+        path: NodePath.join(liveBaseDir, "userdata", "server-runtime.json"),
+        state: yield* makePersistedServerRuntimeState({
+          config: { host: "127.0.0.1", devUrl: undefined },
+          port: 3_773,
+        }),
+      });
+      let liveRequests = 0;
+      const liveFetch: typeof globalThis.fetch = async () => {
+        liveRequests++;
+        return Response.json({ projects: [], updatedAt: "2026-01-01T00:00:00.000Z" });
+      };
+      const localError = yield* runCli([
+        "project",
+        "add",
+        workspaceRoot,
+        "--track",
+        shared,
+        "--track",
+        "   ",
+        "--base-dir",
+        baseDir,
+      ]).pipe(
+        Effect.match({
+          onFailure: (error) => error,
+          onSuccess: () => assert.fail("Expected a whitespace-only --track to fail."),
+        }),
+      );
+      assert.equal(localError.message, "--track folder path cannot be empty.");
+      const liveError = yield* runCli([
+        "project",
+        "add",
+        workspaceRoot,
+        "--track",
+        "",
+        "--base-dir",
+        liveBaseDir,
+      ]).pipe(
+        Effect.provideService(FetchHttpClient.Fetch, liveFetch),
+        Effect.match({
+          onFailure: (error) => error,
+          onSuccess: () => assert.fail("Expected blank --track to fail before live-server RPC."),
+        }),
+      );
+      assert.equal(liveError.message, "--track folder path cannot be empty.");
+      assert.deepEqual((yield* readProjects(baseDir)).projects, []);
+      assert.equal(liveRequests, 0);
+
+      // Repositories inside the folder are found; `--track` adds one from outside it.
       const homeShared = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-v2-project-home-"));
       NodeFS.mkdirSync(NodePath.join(workspaceRoot, "api", ".git"), { recursive: true });
       NodeFS.mkdirSync(NodePath.join(workspaceRoot, "notes"));
