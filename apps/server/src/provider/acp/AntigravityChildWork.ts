@@ -1174,6 +1174,7 @@ const decodeChildMessage = Schema.decodeUnknownOption(
       content: Schema.optional(Schema.String),
       sourceMetadata: Schema.optional(
         Schema.Struct({
+          conversationId: Schema.optional(Schema.String),
           tool: Schema.optional(
             Schema.Struct({
               conversationId: Schema.optional(Schema.String),
@@ -1586,8 +1587,8 @@ export const readAntigravityPendingReply = Effect.fn("readAntigravityPendingRepl
 
 /**
  * agy 1.5 children outlive their `invoke_subagent` call and the agent reports no end for them:
- * a child is done, or waits for guidance, once its message is in the parent's inbox or its record
- * says it was killed. Returns the launching tool call ids of children with neither; none when the
+ * a child is done, or waits for guidance, once its message or idle notice is in the parent's
+ * inbox or its record says it was killed. Returns the launching tool call ids of children with neither; none when the
  * records prove nothing.
  */
 export const readAntigravityChildrenAtWork = Effect.fn("readAntigravityChildrenAtWork")(
@@ -1605,7 +1606,11 @@ export const readAntigravityChildrenAtWork = Effect.fn("readAntigravityChildrenA
           : await listDetachedChildIds(profileRoot, input.rootSessionId);
       if (profileRoot === undefined || childIds === undefined) return [];
       const reported = new Set(
-        (await readInbox(profileRoot, input.rootSessionId)).map((message) => message.sender),
+        (await readInbox(profileRoot, input.rootSessionId)).map((message) =>
+          // A child that ends its turn without send_message is reported by the runtime's
+          // "has gone idle" notice, which names the child only in its metadata.
+          message.sender === "system" ? message.sourceMetadata?.conversationId : message.sender,
+        ),
       );
       const swarmMembers = await readDiskSwarmMembersByConversationId(
         profileRoot,
