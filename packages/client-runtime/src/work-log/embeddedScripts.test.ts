@@ -156,6 +156,8 @@ describe("embeddedScripts", () => {
     [`node --eval="process.exit(0)"`, "javascript", "process.exit(0)"],
     [`psql --command='select 1'`, "sql", "select 1"],
     [`mysql -c -e 'select 1'`, "sql", "select 1"],
+    [`psql -Atc 'select 1'`, "sql", "select 1"],
+    [`mysql -Ne 'select 1'`, "sql", "select 1"],
     [`psql app <<'EOF'\nselect 1;\nEOF`, "sql", "select 1;\n"],
     [`echo "$(node -e 'console.log(1)')"`, "javascript", "console.log(1)"],
     [`python3 <<< 'print(1)'`, "python", "print(1)"],
@@ -234,6 +236,8 @@ describe("embeddedScripts", () => {
     ["an empty separate python -c before a heredoc", `python3 -c '' <<'EOF'\nprint(2)\nEOF`],
     ["a bare python -c before a heredoc", `python3 -c <<'EOF'\nprint(2)\nEOF`],
     ["a bare psql -c before a heredoc", `psql -c <<'EOF'\nselect 1;\nEOF`],
+    ["a psql -d database named c", `psql -dc 'select 1'`],
+    ["a bundled psql -f script file", `psql -Atf query.sql <<'EOF'\nselect 1;\nEOF`],
     ["a shell whose -c has no script, before a heredoc", `sh -c -- <<'EOF'\necho hi\nEOF`],
     [
       "a shell whose -c has only trailing options before a heredoc",

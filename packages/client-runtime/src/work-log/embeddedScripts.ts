@@ -158,9 +158,16 @@ const INTERPRETERS: Record<string, Interpreter> = {
   psql: {
     ...SQL_SHELL,
     inline: flagIn("-c", "--command"),
+    // Bundles like -Atc and -Xtf; a c or f after -d, -h, -U and the like is that option's value.
+    shortFlags: /^-(?!-)[aAbeEHlnqsStwWxXz01]*/u,
     scriptFileOptions: new Set(["-f", "--file"]),
   },
-  mysql: { ...SQL_SHELL, inline: flagIn("-e", "--execute") },
+  mysql: {
+    ...SQL_SHELL,
+    inline: flagIn("-e", "--execute"),
+    // Bundles like -Ne and -sNe; an e after -D, -h, -u and the like is that option's value.
+    shortFlags: /^-(?!-)[AbBcCEfGHinNoqrstUvVwWX]*/u,
+  },
   sqlite3: { ...SQL_SHELL, inline: flagIn("-cmd"), positionalScript: 1 },
   duckdb: {
     ...SQL_SHELL,
