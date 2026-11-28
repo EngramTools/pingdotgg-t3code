@@ -77,6 +77,15 @@ import { refreshTheme, setAppearanceMode } from "~/hooks/useTheme";
 import { THEME_APPEARANCE_MODE_STORAGE_KEY } from "~/themePalette";
 import { AttachmentFilePreview } from "./AttachmentFilePreview";
 import LargeTextViewer from "./LargeTextViewer";
+import type { ClientSettings } from "@t3tools/contracts";
+import {
+  __resetClientSettingsPersistenceForTests,
+  updateClientSettings,
+} from "~/hooks/useSettings";
+import { I18nProvider } from "~/i18n/I18nProvider";
+import { initializeI18n } from "~/i18n/initializeI18n";
+import { startI18n, whenLocaleReady } from "~/i18n/runtime";
+import { ensureLocalApi } from "~/localApi";
 import VirtualTablePreview from "./VirtualTablePreview";
 import { OfficeFilePreview } from "./OfficeFilePreview";
 import { MermaidFilePreview } from "./MermaidFilePreview";
@@ -1258,6 +1267,42 @@ describe("large text preview recovery", () => {
       expect(hasBanner()).toBe(truncated);
     },
   );
+
+  it("formats the line count in the app language, not the browser's", async () => {
+    const { persistence } = ensureLocalApi();
+    let savedSettings: ClientSettings | null = null;
+    using _readSettings = vi
+      .spyOn(persistence, "getClientSettings")
+      .mockImplementation(async () => savedSettings);
+    using _writeSettings = vi
+      .spyOn(persistence, "setClientSettings")
+      .mockImplementation(async (settings) => {
+        savedSettings = settings;
+      });
+    __resetClientSettingsPersistenceForTests();
+    const setLanguage = async (language: string) => {
+      await act(async () => {
+        await updateClientSettings({ language });
+        await whenLocaleReady();
+      });
+    };
+    try {
+      startI18n();
+      await setLanguage("de");
+      await using screen = await render(
+        <I18nProvider>
+          <LargeTextViewer name="log.txt" text={"line\n".repeat(1234)} delimiter={null} />
+        </I18nProvider>,
+      );
+      const status = () => screen.container.querySelector('[role="status"]')?.textContent ?? "";
+      await vi.waitFor(() => expect(status()).toMatch(/^1\.234 Zeilen/), 10_000);
+    } finally {
+      await setLanguage("en");
+      __resetClientSettingsPersistenceForTests();
+      // Restore the GT fallback locale for tests that render without an I18nProvider.
+      initializeI18n(() => {});
+    }
+  });
 
   it("reloads a partial page when the indexed row count grows", async () => {
     const load = vi.fn();
